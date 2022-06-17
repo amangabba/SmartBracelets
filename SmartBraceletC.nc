@@ -4,7 +4,8 @@
 #define PARENT 1    // TOS_NODE_ID
 #define CHILD 2     // TOS_NODE_ID
 
-#define PAIR 'Pair'
+#define PAIR_REQ 'Pair Request'
+#define PAIR_RESP 'Pair Response'
 #define OPERATIONAL 'Operational'
 #define ALARM 'Alarm'
 
@@ -127,12 +128,12 @@ module SmartBraceletC {
         }
         mess->msg_type = RESP; // Not sure if needed
         mess->data = "";
-        mess->coord_x = 0;
-        mess->coord_y = 0;
+        mess->x = 0;
+        mess->y = 0;
 
         call PacketAcknowledgements.requestAck(&packet);
         if (call AMSend.send(PARENT, &packet, sizeof(smart_msg_t)) == SUCCESS) { // Sent successfully!
-            dbg_clear("radio_pack", "[ %hhu, %hhu, %hhu, %hhu]\n", mess->msg_type, mess->data, mess->coord_x, mess->coord_y);
+            dbg_clear("radio_pack", "[ %hhu, %hhu, %hhu, %hhu]\n", mess->msg_type, mess->data, mess->x, mess->y);
         }
         else {
             // Failed!

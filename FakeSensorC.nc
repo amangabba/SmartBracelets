@@ -6,9 +6,12 @@ generic configuration FakeSensorC() {
 
     components MainC, RandomC;
     components new FakeSensorP();
+    components new TimerMilliC();
 
     Read = FakeSensorP;
 
     FakeSensorP.Random -> RandomC;
     RandomC <- MainC.SoftwareInit;
+
+    FakeSensorP.Timer -> TimerMilliC;
 }

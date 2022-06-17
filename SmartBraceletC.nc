@@ -4,14 +4,13 @@
 #define PARENT 1    // TOS_NODE_ID
 #define CHILD 2     // TOS_NODE_ID
 
-#define PAIR_REQ 'Pair Request'
-#define PAIR_RESP 'Pair Response'
-#define OPERATIONAL 'Operational'
-#define ALARM 'Alarm'
+#define PAIR_REQ 0
+#define PAIR_RESP 1
+#define INFO 2
 
 #define PAIR_PERIOD 250
 #define MSG_PERIOD 10000
-#define ALARM_PERIOD 60000
+#define MISSING_ALARM_PERIOD 60000
 
 #define KEY 'ABCDEFGHIJKLMNOPQRST'
 
@@ -34,8 +33,10 @@ module SmartBraceletC {
     }
 } implementation {
     /* Variables initialization */
-    bool locked;
+    bool locked = FALSE;
+    bool paired = FALSE;
     message_t packet;
+    sensor_status_t last;
 
 
 
@@ -61,11 +62,11 @@ module SmartBraceletC {
         if (locked == FALSE) {
             smart_msg_t* mess = (smart_msg_t*) call Packet.getPayload(&packet, sizeof(smart_msg_t));
 
-            mess->msg_type = PAIR;
+            mess->msg_type = PAIR_REQ;
             // TODO: Need to implement the random generation part
             mess->data = KEY;
-            mess->coord_x = 0;
-            mess->coord_y = 0;
+            mess->x = 0;
+            mess->y = 0;
             
             if (call AMSend.send(AM_BROADCAST_ADDR, &packet, sizeof(smart_msg_t))) {
                 dbg("Radio", "Broadcast pairing message with key: %s\n", mess->data);
@@ -75,12 +76,12 @@ module SmartBraceletC {
         }
     }
 
-    event void MilliTimerMsg.fired () { // Timer every 10 seconds
-
+    event void MilliTimerMsg.fired () { // Transmit INFO
+        call Read.read(); // Fake sensor will give back information in 10seconds
     }
 
-    event void MilliTimerAlarm.fired () { // Timer every minute
-
+    event void MilliTimerAlarm.fired () { // MISSING Alarm
+        dbg_clear("ALERT: MISSING! Last known location: (%hhu, %hhu)\n", );
     }
 
     event void AMSend.sendDone (message_t* buf, error_t err) { // When message is sent!
@@ -90,6 +91,12 @@ module SmartBraceletC {
         else { // Message was not sent correctly!
             dbgerror("radio_send", "Error! Message was not sent correctly!\n");
             return;
+        }
+        if (paired == FALSE) { // In pairing mode
+
+        }
+        else { // Paired
+
         }
 
         if (call PacketAcknowledgements.wasAcked(&packet)) { // Message was acknowledged!
@@ -110,15 +117,41 @@ module SmartBraceletC {
         else { // Message received correctly!
             smart_msg_t* mess = (smart_msg_t*) payload;
  
-            if (call AMPacket.destination(buf) == AM_BROADCAST_ADDR && mess->msg_type == PAIR) { // Pairing message
+            if (call AMPacket.destination(buf) == AM_BROADCAST_ADDR && mess->msg_type == PAIR_REQ) { // Pairing message received
                 // TODO: Manage randomly generated keys
                 if (!strcmp(mess->data, KEY)) { // Parent or child is pairing!
-                    
+                    if (locked == FALSE) {
+                        sender_address = call AMPacket.source(buf);
+                        smart_msg_t* mess = (smart_msg_t*) call Packet.getPayload(&packet, sizeof(smart_msg_t));
+
+                        mess->msg_type = PAIR_RESP;
+                        // TODO: Manage randomly generated keys
+                        mess->data = KEY;
+                        
+                        call PacketAcknowledgements.requestAck(&packet);
+                        if (call AMSend.send(sender_address, &packet, sizeof(smart_msg_t)) == SUCCESS) {
+                            locked = TRUE;
+                        }
+                    }
                 }
             }
+            else if (call AMPacket.destination(buf) == TOS_NODE_ID && mess->msg_type == PAIR_RESP) { // Pairing response received
+                call MilliTimerPair.stop();
+            }
+            else if (mess->msg_type == INFO) {
+                dbg_clear("Info received: [(%hhu, %hhu), %hhu]", mess->x, mess->y, mess->data);
+                last.status = mess->data;
+                last.x = mess->x;
+                last.y = mess->y;
 
+                call MilliTimerAlarm.startOneShot(MISSING_ALARM_PERIOD);
+
+                if (strcmp(mess->data, 'FALLING') == 0) {
+                    dbg_clear("ALERT: FALLING!\n");
+                }
+            }
         }
-
+        return buf;
     }
     
     event void Read.readDone (error_t result, uint16_t data) {
@@ -126,7 +159,7 @@ module SmartBraceletC {
         if (mess == NULL) {
             return;
         }
-        mess->msg_type = RESP; // Not sure if needed
+        mess->msg_type = INFO; // Not sure if needed
         mess->data = "";
         mess->x = 0;
         mess->y = 0;

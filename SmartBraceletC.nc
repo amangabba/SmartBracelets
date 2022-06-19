@@ -38,8 +38,6 @@ module SmartBraceletC {
     message_t packet;
     sensor_status_t last;
 
-
-
     event void Boot.booted() {
         dbg("boot", "Application booted on node %u.\n", TOS_NODE_ID);
         call SplitControl.start();
@@ -63,8 +61,7 @@ module SmartBraceletC {
             smart_msg_t* mess = (smart_msg_t*) call Packet.getPayload(&packet, sizeof(smart_msg_t));
 
             mess->msg_type = PAIR_REQ;
-            // TODO: Need to implement the random generation part
-            mess->data = KEY;
+            strcpy(mess->data, KEY); // TODO: Need to implement the random generation part
             mess->x = 0;
             mess->y = 0;
             
@@ -96,7 +93,7 @@ module SmartBraceletC {
 
         }
         else { // Paired
-
+            if ()
         }
 
         if (call PacketAcknowledgements.wasAcked(&packet)) { // Message was acknowledged!
@@ -125,8 +122,7 @@ module SmartBraceletC {
                         smart_msg_t* mess = (smart_msg_t*) call Packet.getPayload(&packet, sizeof(smart_msg_t));
 
                         mess->msg_type = PAIR_RESP;
-                        // TODO: Manage randomly generated keys
-                        mess->data = KEY;
+                        strcpy(mess->data, KEY); // TODO: Manage randomly generated keys
                         
                         call PacketAcknowledgements.requestAck(&packet);
                         if (call AMSend.send(sender_address, &packet, sizeof(smart_msg_t)) == SUCCESS) {
@@ -136,11 +132,15 @@ module SmartBraceletC {
                 }
             }
             else if (call AMPacket.destination(buf) == TOS_NODE_ID && mess->msg_type == PAIR_RESP) { // Pairing response received
+                paired = TRUE;
                 call MilliTimerPair.stop();
+                if (TOS_NODE_ID == CHILD) {
+                    MilliTimerMsg.startPeriodic(MSG_PERIOD);
+                }
             }
             else if (mess->msg_type == INFO) {
-                dbg_clear("Info received: [(%hhu, %hhu), %hhu]", mess->x, mess->y, mess->data);
-                last.status = mess->data;
+                dbg_clear("Node %hhu received info: [%hhu, (%hhu, %hhu)]", TOS_NODE_ID, mess->data, mess->x, mess->y);
+                strcpy(last.status, mess->data);
                 last.x = mess->x;
                 last.y = mess->y;
 
@@ -154,26 +154,25 @@ module SmartBraceletC {
         return buf;
     }
     
-    event void Read.readDone (error_t result, uint16_t data) {
+    event void Read.readDone (error_t result, sensor_status_t sensor_status) {
         smart_msg_t* mess = (smart_msg_t*) (call Packet.getPayload(&packet, sizeof(smart_msg_t)));
         if (mess == NULL) {
             return;
         }
-        mess->msg_type = INFO; // Not sure if needed
-        mess->data = "";
-        mess->x = 0;
-        mess->y = 0;
+        mess->msg_type = INFO;
+        strcpy(mess->data, sensor_status.status);
+        mess->x = sensor_status.x;
+        mess->y = sensor_status.y;
 
         call PacketAcknowledgements.requestAck(&packet);
-        if (call AMSend.send(PARENT, &packet, sizeof(smart_msg_t)) == SUCCESS) { // Sent successfully!
-            dbg_clear("radio_pack", "[ %hhu, %hhu, %hhu, %hhu]\n", mess->msg_type, mess->data, mess->x, mess->y);
+        if (locked == FALSE) {
+            if (call AMSend.send(PARENT, &packet, sizeof(smart_msg_t)) == SUCCESS) { // Sent successfully!
+                dbg_clear("radio_pack", "Node %hhu sending info [ %hhu, %hhu, %hhu, %hhu]\n", TOS_NODE_ID, mess->msg_type, mess->data, mess->x, mess->y);
+                locked = TRUE;
+            }
+            else { // Failed!
+                dbg_clear("radio_pack", "Node %hhu was not able to send the information!\n", TOS_NODE_ID);
+            }
         }
-        else {
-            // Failed!
-        }
-
     }
-
-
-
 }

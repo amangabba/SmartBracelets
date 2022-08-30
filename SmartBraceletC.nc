@@ -35,14 +35,26 @@ module SmartBraceletC {
     message_t packet;
     sensor_status_t last;
     uint16_t sender_address;
-    uint8_t key[2][20] = {	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    						{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    						{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    						{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
+    uint8_t key[20];
+    uint8_t pair_index;
     uint8_t j;
+    
+    
 
     event void Boot.booted() {
-        dbg("boot", "[%s]Application booted on node %u.\n",sim_time_string(), TOS_NODE_ID);
+    	pair_index = (TOS_NODE_ID + 1) / 2;
+        dbg("boot", "[%s] Application booted on node %u. Having bracelet key: ",sim_time_string(), TOS_NODE_ID);
+        for (j=0; j<20; j++) {
+    		if (j<10) {
+    			key[j] = pair_index % (j+1);
+    			dbg_clear("radio", "%u", key[j]);
+    		}
+    		else {
+    			key[j] = pair_index % (20-j);
+    			dbg_clear("radio", "%u", key[j]);
+    		}
+    	}
+    	dbg_clear("radio", "\n");
         call SplitControl.start();
     }
 
@@ -68,9 +80,8 @@ module SmartBraceletC {
             mess->address = TOS_NODE_ID;
             
             for (j=0; j<20; j++) {
-            	mess->key[j] = key[(TOS_NODE_ID-1)/2][j];
+            	mess->key[j] = key[j];
             }
-            // mess->key = key[TOS_NODE_ID / 2]; // TODO: Need to implement the random generation part
             
             if (call AMSend.send(AM_BROADCAST_ADDR, &packet, sizeof(pair_msg_t)) == SUCCESS) {
                 dbg("radio", "[%s | PAIRING] Broadcast pairing message with key:", sim_time_string());
@@ -155,14 +166,19 @@ module SmartBraceletC {
  			// dbg("radio", "Message received!\n");
  			flagKey = TRUE;
  			for (j=0; j<20; j++) {
-					if (pair_mess->key[j] != key[(TOS_NODE_ID-1)/2][j]) {
+					if (pair_mess->key[j] != key[j]) {
 						flagKey = FALSE;
 					}
 				}
             if (call AMPacket.destination(buf) == AM_BROADCAST_ADDR && pair_mess->msg_type == PAIR_REQ && paired == FALSE) { // Pairing message received
             	sender_address = pair_mess->address;
                 if (flagKey == TRUE) { // Parent or child is pairing!
-                	dbg("radio", "[%s | PAIRING] (Node %u) has sent a pairing request!\n", sim_time_string(), sender_address);
+                	if (sender_address % 2 == PARENT) {
+                		dbg("radio", "[%s | PAIRING] Matching keys: Parent bracelet (Node %u) has sent a pairing request!\n", sim_time_string(), sender_address);
+                	}
+                	else {
+                		dbg("radio", "[%s | PAIRING] Matching keys: Child bracelet (Node %u) has sent a pairing request!\n", sim_time_string(), sender_address);
+                	}
                     if (locked == FALSE) {
                         // sender_address = call AMPacket.source(buf);
                         
@@ -172,7 +188,7 @@ module SmartBraceletC {
                         pair_mess->address = TOS_NODE_ID;
 
                         for (j=0; j<20; j++) {
-            				pair_mess->key[j] = key[(TOS_NODE_ID-1)/2][j];
+            				pair_mess->key[j] = key[j];
             			}
                         
                         call PacketAcknowledgements.requestAck(&packet);
@@ -182,7 +198,7 @@ module SmartBraceletC {
                     }
                 }
                 else { // Other bracelets pairing
-                	dbg("radio", "[%s | PAIRING] Pairing message received from other bracelets (Node %u)!\n", sim_time_string(), sender_address);
+                	dbg("radio", "[%s | PAIRING] Different keys: Pairing message received from other bracelets (Node %u)!\n", sim_time_string(), sender_address);
                 }
             }
             else if (call AMPacket.destination(buf) == TOS_NODE_ID && pair_mess->msg_type == PAIR_RESP && flagKey) { // Pairing response received
